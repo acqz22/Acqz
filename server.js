@@ -9,7 +9,7 @@ app.use(express.json({ limit: '10mb' }));
 
 const ZENROWS_KEY = process.env.ZENROWS_API_KEY;
 
-app.get('/', (req, res) => res.send('<h1>🚀 ACQZ Lead Scraper – Fully Fixed & Workflow Ready</h1>'));
+app.get('/', (req, res) => res.send('<h1>🚀 ACQZ Lead Scraper – 100% Clean & Workflow Ready</h1>'));
 
 app.post('/scrape', async (req, res) => {
   const startTime = Date.now();
@@ -135,4 +135,4 @@ app.post('/scrape', async (req, res) => {
 });
 
 const port = process.env.PORT || 10000;
-app.listen(port, () => console.log(`✅ ACQZ Scraper v4 LIVE – Workflow Compatible`));
+app.listen(port, () => console.log(`✅ ACQZ Scraper v4 LIVE – 100% Clean`));
