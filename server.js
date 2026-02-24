@@ -9,11 +9,11 @@ app.use(express.json({ limit: '10mb' }));
 
 const ZENROWS_KEY = process.env.ZENROWS_API_KEY;
 
-app.get('/', (req, res) => res.send('<h1>🚀 ACQZ Lead Scraper – Fixed & Working</h1>'));
+app.get('/', (req, res) => res.send('<h1>🚀 ACQZ Lead Scraper – Fully Fixed & Workflow Ready</h1>'));
 
 app.post('/scrape', async (req, res) => {
   const startTime = Date.now();
-  let { platforms, maxLeadsPerPlatform = 30, search, location, input = {} } = req.body;
+  let { platforms, maxLeadsPerPlatform = 40, search, location, input = {} } = req.body;
 
   if (!platforms || !location || !ZENROWS_KEY) {
     return res.status(400).json({ success: false, error: 'Missing platforms / location / ZENROWS_API_KEY' });
@@ -81,7 +81,7 @@ app.post('/scrape', async (req, res) => {
       const { data: html } = await axios.get(zenUrl, { timeout: 40000 });
       const $ = load(html);
 
-      // Stronger parsing (2026-ready)
+      // Stronger 2026 parsing
       if (platform.includes('google')) {
         $('.g, .Nv2G9d, .fontHeadlineSmall, .section-result, [jsname]').each((i, el) => {
           if (results.length >= maxThis) return false;
@@ -102,7 +102,7 @@ app.post('/scrape', async (req, res) => {
           });
         });
       } else {
-        // Social platforms fallback
+        // Social fallback
         $('a, h1, h2, span').each((i, el) => {
           if (results.length >= maxThis) return false;
           const text = $(el).text().trim();
@@ -114,7 +114,7 @@ app.post('/scrape', async (req, res) => {
 
       console.log(`[RESULT] ${platform} → Found ${results.length} leads`);
 
-      resultsByPlatform[platform] = results.length ? results : [{ note: `${platform} - no public leads visible on first page` }];
+      resultsByPlatform[platform] = results.length ? results : [{ note: `${platform} - no public leads visible` }];
       totalLeads += results.length;
 
     } catch (e) {
@@ -123,8 +123,10 @@ app.post('/scrape', async (req, res) => {
     }
   }
 
+  // IMPORTANT: Return format that matches your "Normalize All Raw Results" node
   res.json({
     success: true,
+    raw_leads: Object.values(resultsByPlatform).flat(),   // flat array for your workflow
     totalLeads,
     durationMs: Date.now() - startTime,
     results: resultsByPlatform,
@@ -133,4 +135,4 @@ app.post('/scrape', async (req, res) => {
 });
 
 const port = process.env.PORT || 10000;
-app.listen(port, () => console.log(`✅ ACQZ Scraper v3 LIVE – Fixed`));
+app.listen(port, () => console.log(`✅ ACQZ Scraper v4 LIVE – Workflow Compatible`));
