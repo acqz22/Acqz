@@ -66,37 +66,37 @@ app.post('/scrape', async (req, res) => {
   const startTime = Date.now();
   let { platforms, maxLeadsPerPlatform = 40, search, location, input = {} } = req.body;
 
-  if (!platforms || !location || !ZENROWS_KEY) {
+  const resolvedLocation = location || input.location;
+  if (!platforms || !resolvedLocation || !ZENROWS_KEY) {
     return res.status(400).json({ success: false, error: 'Missing platforms / location / ZENROWS_API_KEY' });
   }
   if (typeof platforms === 'string') platforms = [platforms];
 
+  const resolvedQuery = search || input.niche || input.search || 'restaurant';
+
   const resultsByPlatform = {};
   let totalLeads = 0;
   const parsedMax = Number.parseInt(maxLeadsPerPlatform, 10);
-  const maxThis = Number.isNaN(parsedMax) ? 40 : Math.min(parsedMax, 80);
+  const maxThis = Number.isNaN(parsedMax) ? 40 : Math.min(Math.max(parsedMax, 1), 80);
 
-  console.log(`[START] Platforms: ${platforms} | Search: ${search} | Location: ${location}`);
+  console.log(`[START] Platforms: ${platforms} | Search: ${resolvedQuery} | Location: ${resolvedLocation}`);
 
   for (const platform of platforms) {
-    const platformId = String(platform || '').trim().toLowerCase();
+    const rawPlatform = String(platform || '').trim();
+    const platformId = rawPlatform.toLowerCase();
     let results = [];
+
     try {
       let zenParams = '&js_render=true&premium_proxy=true&antibot=true';
-
-      const query = search || input.niche || input.search || 'restaurant';
-      const loc = location || input.location || 'Bangalore, India';
-
-      const targetUrl = buildTargetUrl(platformId, query, loc);
+      const targetUrl = buildTargetUrl(platformId, resolvedQuery, resolvedLocation);
       if (platformId === 'google_maps') zenParams = '&js_render=true';
 
-      console.log(`[FETCH] ${platformId} → ${targetUrl}`);
+      console.log(`[FETCH] ${rawPlatform} → ${targetUrl}`);
 
       const zenUrl = buildZenrowsUrl(targetUrl, zenParams);
       const { data: html } = await axios.get(zenUrl, { timeout: 40000 });
       const $ = load(html);
 
-      // Stronger 2026 parsing
       if (platformId.startsWith('google')) {
         $('.g, .Nv2G9d, .fontHeadlineSmall, .section-result, [jsname]').each((i, el) => {
           if (results.length >= maxThis) return false;
@@ -104,7 +104,7 @@ app.post('/scrape', async (req, res) => {
           const link = $(el).find('a').attr('href') || '';
           const phone = $(el).text().match(/(\+?\d[\d\s\-\(\)]{8,})/)?.[0] || '';
           const address = $(el).find('.VwiC3b, .address').text().trim();
-          if (title && title.length > 3) results.push({ title, link, phone, address, source: platformId });
+          if (title && title.length > 3) results.push({ title, link, phone, address, source: rawPlatform });
         });
       } else if (platformId === 'yellowpages' || platformId === 'justdial') {
         $('.result, .jdgm-listing').each((i, el) => {
@@ -113,35 +113,32 @@ app.post('/scrape', async (req, res) => {
             title: $(el).find('.business-name, .jdgm-listing-name, .store-name').text().trim(),
             phone: $(el).find('.phones, .jdgm-phone, .phone').text().trim(),
             address: $(el).find('.street-address, .adr').text().trim(),
-            source: platformId
+            source: rawPlatform
           });
         });
       } else {
-        // Social fallback
         $('a, h1, h2, span').each((i, el) => {
           if (results.length >= maxThis) return false;
           const text = $(el).text().trim();
           if (text.length > 5 && (text.includes('@') || text.match(/\d{10}/) || text.length < 50)) {
-            results.push({ name: text, source: platformId });
+            results.push({ name: text, source: rawPlatform });
           }
         });
       }
 
-      console.log(`[RESULT] ${platformId} → Found ${results.length} leads`);
+      console.log(`[RESULT] ${rawPlatform} → Found ${results.length} leads`);
 
-      resultsByPlatform[platformId] = results.length ? results : [{ note: `${platformId} - no public leads visible` }];
+      resultsByPlatform[rawPlatform] = results.length ? results : [{ note: `${rawPlatform} - no public leads visible` }];
       totalLeads += results.length;
-
     } catch (e) {
-      console.error(`[ERROR] ${platformId}:`, e.message);
-      resultsByPlatform[platformId] = [{ error: e.message }];
+      console.error(`[ERROR] ${rawPlatform}:`, e.message);
+      resultsByPlatform[rawPlatform] = [{ error: e.message }];
     }
   }
 
-  // IMPORTANT: Return format that matches your "Normalize All Raw Results" node
   res.json({
     success: true,
-    raw_leads: Object.values(resultsByPlatform).flat(),   // flat array for your workflow
+    raw_leads: Object.values(resultsByPlatform).flat(),
     totalLeads,
     durationMs: Date.now() - startTime,
     results: resultsByPlatform,
@@ -149,5 +146,5 @@ app.post('/scrape', async (req, res) => {
   });
 });
 
-const port = process.env.PORT || 10000;
-app.listen(port, () => console.log('✅ ACQZ Scraper v4 LIVE – 100% Clean'));
+const port = Number.parseInt(process.env.PORT, 10) || 10000;
+app.listen(port, () => console.log(`✅ ACQZ Scraper v4 LIVE – port ${port}`));
