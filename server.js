@@ -2,6 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import { load } from 'cheerio';
 import cors from 'cors';
+import { normalizeLeads } from './src/core/normalization/index.js';
 
 const app = express();
 app.use(cors());
@@ -13,7 +14,7 @@ app.get('/', (req, res) => res.send('<h1>🚀 ACQZ Lead Scraper – 100% Clean &
 
 app.post('/scrape', async (req, res) => {
   const startTime = Date.now();
-  let { platforms, maxLeadsPerPlatform = 40, search, location, input = {} } = req.body;
+  let { platforms, maxLeadsPerPlatform = 40, minimumConfidence = 0, search, location, input = {} } = req.body;
 
   if (!platforms || !location || !ZENROWS_KEY) {
     return res.status(400).json({ success: false, error: 'Missing platforms / location / ZENROWS_API_KEY' });
@@ -63,10 +64,10 @@ app.post('/scrape', async (req, res) => {
           targetUrl = `https://twitter.com/explore?q=${encodeURIComponent(query)}`;
           break;
         case 'yellowpages':
-          targetUrl = `https://www.yellowpages.com/search?search_terms=\( {encodeURIComponent(query)}&geo_location_terms= \){encodeURIComponent(loc)}`;
+          targetUrl = `https://www.yellowpages.com/search?search_terms=${encodeURIComponent(query)}&geo_location_terms=${encodeURIComponent(loc)}`;
           break;
         case 'justdial':
-          targetUrl = `https://www.justdial.com/\( {encodeURIComponent(loc)}/ \){encodeURIComponent(query)}`;
+          targetUrl = `https://www.justdial.com/${encodeURIComponent(loc)}/${encodeURIComponent(query)}`;
           break;
         case 'tiktok':
           targetUrl = `https://www.tiktok.com/search?q=${encodeURIComponent(query)}`;
@@ -77,7 +78,7 @@ app.post('/scrape', async (req, res) => {
 
       console.log(`[FETCH] ${platform} → ${targetUrl}`);
 
-      const zenUrl = `https://api.zenrows.com/v1/?apikey=\( {ZENROWS_KEY}&url= \){encodeURIComponent(targetUrl)}${zenParams}`;
+      const zenUrl = `https://api.zenrows.com/v1/?apikey=${ZENROWS_KEY}&url=${encodeURIComponent(targetUrl)}${zenParams}`;
       const { data: html } = await axios.get(zenUrl, { timeout: 40000 });
       const $ = load(html);
 
@@ -123,12 +124,23 @@ app.post('/scrape', async (req, res) => {
     }
   }
 
-  // IMPORTANT: Return format that matches your "Normalize All Raw Results" node
+  const rawLeads = Object.values(resultsByPlatform).flat();
+  const resolvedMinimumConfidence = Number(input.minimumConfidence ?? minimumConfidence) || 0;
+  const { leads: normalizedLeads, audit } = normalizeLeads(rawLeads, {
+    minimumConfidence: resolvedMinimumConfidence,
+    requestedLocation: location || input.location,
+    defaultCountryCode: input.defaultCountryCode || '+1'
+  });
+
   res.json({
     success: true,
-    raw_leads: Object.values(resultsByPlatform).flat(),   // flat array for your workflow
+    raw_leads: rawLeads,
+    normalized_leads: normalizedLeads,
+    normalized_audit: audit,
     totalLeads,
+    normalizedLeadCount: normalizedLeads.length,
     durationMs: Date.now() - startTime,
+    minimumConfidence: resolvedMinimumConfidence,
     results: resultsByPlatform,
     platformsUsed: platforms
   });
