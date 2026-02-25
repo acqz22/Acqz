@@ -1,0 +1,8 @@
+{
+  "businessName": "Acme Dental",
+  "phone": "+1 555 000 1212",
+  "website": "https://acme.example",
+  "location": "NYC",
+  "category": "Dentist",
+  "profileUrl": "https://www.google.com/maps/place/acme"
+}

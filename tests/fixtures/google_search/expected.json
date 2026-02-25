@@ -1,0 +1,9 @@
+{
+  "businessName": "Acme Plumbing",
+  "phone": "+1 555 321 1111",
+  "email": "hello@acme.example",
+  "website": "https://acme.example",
+  "location": "Austin",
+  "category": "Plumber",
+  "profileUrl": "https://acme.example"
+}

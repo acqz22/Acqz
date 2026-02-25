@@ -1,0 +1,9 @@
+{
+  "businessName": "Acme YP",
+  "phone": "+1 555 333 1212",
+  "email": "office@acmeyp.example",
+  "website": "https://acmeyp.example",
+  "location": "Denver",
+  "category": "HVAC",
+  "profileUrl": "https://yellowpages.com/acme"
+}
