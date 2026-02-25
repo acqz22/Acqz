@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:parsers": "node --test tests/parsers.test.js",
+    "check:fixtures": "node scripts/check-known-good-fixtures.js",
+    "test": "npm run test:parsers && npm run check:fixtures"
   },
   "dependencies": {
     "express": "^4.21.2",
