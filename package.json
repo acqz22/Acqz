@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "typecheck:dedupe": "tsc --pretty false --noEmit --target es2022 --module nodenext --lib es2022 --types node src/core/dedupe/leadDedupe.ts"
   },
   "dependencies": {
     "express": "^4.21.2",
     "axios": "^1.7.9",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^24.3.0"
   }
 }
