@@ -8,20 +8,51 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const ZENROWS_KEY = process.env.ZENROWS_API_KEY;
-
+const MAX_LEADS_LIMIT = 80;
+const DEFAULT_LEADS_LIMIT = 40;
 const jobs = new Map();
 
-function validateLeadRequest(body = {}) {
-  const errors = [];
-  const { platforms, location, input = {} } = body;
-
-  if (!platforms || (Array.isArray(platforms) && platforms.length === 0)) {
-    errors.push({ field: 'platforms', message: 'platforms is required' });
+/**
+ * Normalize platforms input into a non-empty array of strings.
+ */
+function normalizePlatforms(platforms) {
+  if (Array.isArray(platforms)) {
+    return platforms
+      .map((p) => String(p || '').trim())
+      .filter(Boolean);
   }
 
-  const resolvedLocation = location || input.location;
+  const single = String(platforms || '').trim();
+  return single ? [single] : [];
+}
+
+/**
+ * Parse max leads value and constrain to [1, MAX_LEADS_LIMIT].
+ */
+function parseMaxLeads(maxLeadsPerPlatform) {
+  const parsed = Number.parseInt(maxLeadsPerPlatform, 10);
+  if (Number.isNaN(parsed)) return DEFAULT_LEADS_LIMIT;
+  return Math.min(Math.max(parsed, 1), MAX_LEADS_LIMIT);
+}
+
+function validateLeadRequest(body = {}) {
+  const payload = body && typeof body === 'object' ? body : {};
+  const input = payload.input && typeof payload.input === 'object' ? payload.input : {};
+  const platforms = normalizePlatforms(payload.platforms);
+  const resolvedLocation = String(payload.location || input.location || '').trim();
+  const resolvedQuery = String(payload.search || input.niche || input.search || 'restaurant').trim();
+
+  const errors = [];
+  if (platforms.length === 0) {
+    errors.push({ field: 'platforms', message: 'At least one platform is required.' });
+  }
+
   if (!resolvedLocation) {
-    errors.push({ field: 'location', message: 'location or input.location is required' });
+    errors.push({ field: 'location', message: 'location or input.location is required.' });
+  }
+
+  if (!ZENROWS_KEY) {
+    errors.push({ field: 'ZENROWS_API_KEY', message: 'ZENROWS_API_KEY environment variable is required.' });
   }
 
   return {
@@ -30,8 +61,8 @@ function validateLeadRequest(body = {}) {
     normalized: {
       platforms,
       location: resolvedLocation,
-      search: body.search || input.niche || input.search || 'restaurant',
-      maxLeadsPerPlatform: body.maxLeadsPerPlatform ?? 40,
+      search: resolvedQuery,
+      maxLeadsPerPlatform: parseMaxLeads(payload.maxLeadsPerPlatform),
       input,
     },
   };
@@ -43,10 +74,12 @@ function createJob(payload) {
     id,
     status: 'queued',
     createdAt: new Date().toISOString(),
+    completedAt: null,
     payload,
     result: null,
     error: null,
   };
+
   jobs.set(id, job);
   return job;
 }
@@ -56,7 +89,8 @@ function getJob(id) {
 }
 
 async function handleMcpRequest(body = {}) {
-  const { action = 'health' } = body;
+  const action = String(body?.action || 'health').trim().toLowerCase();
+
   if (action === 'health') {
     return {
       success: true,
@@ -65,6 +99,7 @@ async function handleMcpRequest(body = {}) {
       endpoints: ['/jobs', '/jobs/:id', '/mcp', '/scrape'],
     };
   }
+
   return { success: false, error: `Unsupported MCP action: ${action}` };
 }
 
@@ -111,7 +146,7 @@ function buildZenrowsUrl(targetUrl, zenParams = '') {
   url.searchParams.set('apikey', ZENROWS_KEY);
   url.searchParams.set('url', targetUrl);
 
-  const extraParams = new URLSearchParams((zenParams || '').replace(/^&/, ''));
+  const extraParams = new URLSearchParams(String(zenParams || '').replace(/^&/, ''));
   extraParams.forEach((value, key) => {
     url.searchParams.set(key, value);
   });
@@ -121,36 +156,25 @@ function buildZenrowsUrl(targetUrl, zenParams = '') {
 
 async function runScrape(payload) {
   const startTime = Date.now();
-  let { platforms, maxLeadsPerPlatform = 40, search, location, input = {} } = payload;
-
-  const resolvedLocation = location || input.location;
-  if (!platforms || !resolvedLocation || !ZENROWS_KEY) {
-    return {
-      success: false,
-      error: 'Missing platforms / location / ZENROWS_API_KEY',
-    };
+  const validation = validateLeadRequest(payload);
+  if (!validation.valid) {
+    return { success: false, errors: validation.errors };
   }
 
-  if (typeof platforms === 'string') platforms = [platforms];
-
-  const resolvedQuery = search || input.niche || input.search || 'restaurant';
-
+  const { platforms, maxLeadsPerPlatform, search, location } = validation.normalized;
   const resultsByPlatform = {};
   let totalLeads = 0;
-  const parsedMax = Number.parseInt(maxLeadsPerPlatform, 10);
-  const maxThis = Number.isNaN(parsedMax) ? 40 : Math.min(Math.max(parsedMax, 1), 80);
 
-  console.log(`[START] Platforms: ${platforms} | Search: ${resolvedQuery} | Location: ${resolvedLocation}`);
+  console.log(`[START] Platforms: ${platforms.join(', ')} | Search: ${search} | Location: ${location}`);
 
   for (const platform of platforms) {
-    const rawPlatform = String(platform || '').trim();
-    const platformId = rawPlatform.toLowerCase();
-    const resultKey = rawPlatform || platformId || 'unknown';
-    let results = [];
+    const platformId = platform.toLowerCase();
+    const resultKey = platform;
+    const results = [];
 
     try {
       let zenParams = '&js_render=true&premium_proxy=true&antibot=true';
-      const targetUrl = buildTargetUrl(platformId, resolvedQuery, resolvedLocation);
+      const targetUrl = buildTargetUrl(platformId, search, location);
       if (platformId === 'google_maps') zenParams = '&js_render=true';
 
       console.log(`[FETCH] ${resultKey} → ${targetUrl}`);
@@ -161,16 +185,18 @@ async function runScrape(payload) {
 
       if (platformId.startsWith('google')) {
         $('.g, .Nv2G9d, .fontHeadlineSmall, .section-result, [jsname]').each((i, el) => {
-          if (results.length >= maxThis) return false;
+          if (results.length >= maxLeadsPerPlatform) return false;
           const title = $(el).find('h3, .fontHeadlineSmall, .name').text().trim() || $(el).text().split('\n')[0];
           const link = $(el).find('a').attr('href') || '';
           const phone = $(el).text().match(/(\+?\d[\d\s\-\(\)]{8,})/)?.[0] || '';
           const address = $(el).find('.VwiC3b, .address').text().trim();
-          if (title && title.length > 3) results.push({ title, link, phone, address, source: resultKey });
+          if (title && title.length > 3) {
+            results.push({ title, link, phone, address, source: resultKey });
+          }
         });
       } else if (platformId === 'yellowpages' || platformId === 'justdial') {
         $('.result, .jdgm-listing').each((i, el) => {
-          if (results.length >= maxThis) return false;
+          if (results.length >= maxLeadsPerPlatform) return false;
           results.push({
             title: $(el).find('.business-name, .jdgm-listing-name, .store-name').text().trim(),
             phone: $(el).find('.phones, .jdgm-phone, .phone').text().trim(),
@@ -180,7 +206,7 @@ async function runScrape(payload) {
         });
       } else {
         $('a, h1, h2, span').each((i, el) => {
-          if (results.length >= maxThis) return false;
+          if (results.length >= maxLeadsPerPlatform) return false;
           const text = $(el).text().trim();
           if (text.length > 5 && (text.includes('@') || text.match(/\d{10}/) || text.length < 50)) {
             results.push({ name: text, source: resultKey });
@@ -188,13 +214,15 @@ async function runScrape(payload) {
         });
       }
 
-      console.log(`[RESULT] ${resultKey} → Found ${results.length} leads`);
+      resultsByPlatform[resultKey] = results.length
+        ? results
+        : [{ note: `${resultKey} - no public leads visible` }];
 
-      resultsByPlatform[resultKey] = results.length ? results : [{ note: `${resultKey} - no public leads visible` }];
       totalLeads += results.length;
-    } catch (e) {
-      console.error(`[ERROR] ${resultKey}:`, e.message);
-      resultsByPlatform[resultKey] = [{ error: e.message }];
+      console.log(`[RESULT] ${resultKey} → Found ${results.length} leads`);
+    } catch (error) {
+      console.error(`[ERROR] ${resultKey}:`, error.message);
+      resultsByPlatform[resultKey] = [{ error: error.message }];
     }
   }
 
@@ -217,36 +245,48 @@ app.get('/', (req, res) => {
 });
 
 app.post('/scrape', async (req, res) => {
-  const response = await runScrape(req.body);
-  if (!response.success) return res.status(400).json(response);
-  return res.json(response);
+  try {
+    const response = await runScrape(req.body);
+    if (!response.success) return res.status(400).json(response);
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 app.post('/jobs', async (req, res) => {
-  const validation = validateLeadRequest(req.body);
-  if (!validation.valid) {
-    return res.status(400).json({ success: false, errors: validation.errors });
+  try {
+    const validation = validateLeadRequest(req.body);
+    if (!validation.valid) {
+      return res.status(400).json({ success: false, errors: validation.errors });
+    }
+
+    const job = createJob(validation.normalized);
+    res.status(202).json({ success: true, jobId: job.id, status: job.status });
+
+    runScrape(validation.normalized)
+      .then((result) => {
+        const stored = getJob(job.id);
+        if (!stored) return;
+
+        stored.status = result.success ? 'completed' : 'failed';
+        stored.result = result.success ? result : null;
+        stored.error = result.success ? null : JSON.stringify(result.errors || result.error || 'Unknown error');
+        stored.completedAt = new Date().toISOString();
+      })
+      .catch((error) => {
+        const stored = getJob(job.id);
+        if (!stored) return;
+
+        stored.status = 'failed';
+        stored.error = error.message;
+        stored.completedAt = new Date().toISOString();
+      });
+
+    return undefined;
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
   }
-
-  const job = createJob(validation.normalized);
-  res.status(202).json({ success: true, jobId: job.id, status: job.status });
-
-  runScrape(validation.normalized)
-    .then((result) => {
-      const stored = getJob(job.id);
-      if (!stored) return;
-      stored.status = result.success ? 'completed' : 'failed';
-      stored.result = result.success ? result : null;
-      stored.error = result.success ? null : result.error;
-      stored.completedAt = new Date().toISOString();
-    })
-    .catch((error) => {
-      const stored = getJob(job.id);
-      if (!stored) return;
-      stored.status = 'failed';
-      stored.error = error.message;
-      stored.completedAt = new Date().toISOString();
-    });
 });
 
 app.get('/jobs/:id', (req, res) => {
@@ -258,8 +298,12 @@ app.get('/jobs/:id', (req, res) => {
 });
 
 app.post('/mcp', async (req, res) => {
-  const response = await handleMcpRequest(req.body);
-  res.json(response);
+  try {
+    const response = await handleMcpRequest(req.body);
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 const port = Number.parseInt(process.env.PORT, 10) || 10000;
