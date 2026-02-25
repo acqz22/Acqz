@@ -9,6 +9,39 @@ app.use(express.json({ limit: '10mb' }));
 
 const ZENROWS_KEY = process.env.ZENROWS_API_KEY;
 
+function buildTargetUrl(platform, query, loc) {
+  const encodedQuery = encodeURIComponent(query);
+  const encodedLoc = encodeURIComponent(loc);
+
+  switch (platform) {
+    case 'google_maps':
+      return `https://www.google.com/maps/search/${encodeURIComponent(`${query} ${loc}`)}`;
+    case 'instagram':
+      return `https://www.instagram.com/explore/search/keyword/?q=${encodedQuery}`;
+    case 'linkedin':
+      return `https://www.linkedin.com/search/results/companies/?keywords=${encodedQuery}`;
+    case 'facebook':
+      return `https://www.facebook.com/search/pages?q=${encodedQuery}`;
+    case 'meta_ads':
+      return `https://www.facebook.com/ads/library/?q=${encodedQuery}`;
+    case 'google_ads':
+    case 'google_search':
+      return `https://www.google.com/search?q=${encodeURIComponent(`${query} ${loc}`)}`;
+    case 'youtube':
+      return `https://www.youtube.com/results?search_query=${encodedQuery}`;
+    case 'twitter':
+      return `https://twitter.com/explore?q=${encodedQuery}`;
+    case 'yellowpages':
+      return `https://www.yellowpages.com/search?search_terms=${encodedQuery}&geo_location_terms=${encodedLoc}`;
+    case 'justdial':
+      return `https://www.justdial.com/${encodedLoc}/${encodedQuery}`;
+    case 'tiktok':
+      return `https://www.tiktok.com/search?q=${encodedQuery}`;
+    default:
+      return `https://www.google.com/search?q=${encodeURIComponent(`${query} ${loc}`)}`;
+  }
+}
+
 app.get('/', (req, res) => res.send('<h1>🚀 ACQZ Lead Scraper – 100% Clean & Workflow Ready</h1>'));
 
 app.post('/scrape', async (req, res) => {
@@ -35,49 +68,12 @@ app.post('/scrape', async (req, res) => {
       const query = search || input.niche || input.search || 'restaurant';
       const loc = location || input.location || 'Bangalore, India';
 
-      switch (platform) {
-        case 'google_maps':
-          targetUrl = `https://www.google.com/maps/search/${encodeURIComponent(query + ' ' + loc)}`;
-          zenParams = '&js_render=true';
-          break;
-        case 'instagram':
-          targetUrl = `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(query)}`;
-          break;
-        case 'linkedin':
-          targetUrl = `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(query)}`;
-          break;
-        case 'facebook':
-          targetUrl = `https://www.facebook.com/search/pages?q=${encodeURIComponent(query)}`;
-          break;
-        case 'meta_ads':
-          targetUrl = `https://www.facebook.com/ads/library/?q=${encodeURIComponent(query)}`;
-          break;
-        case 'google_ads':
-        case 'google_search':
-          targetUrl = `https://www.google.com/search?q=${encodeURIComponent(query + ' ' + loc)}`;
-          break;
-        case 'youtube':
-          targetUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-          break;
-        case 'twitter':
-          targetUrl = `https://twitter.com/explore?q=${encodeURIComponent(query)}`;
-          break;
-        case 'yellowpages':
-          targetUrl = `https://www.yellowpages.com/search?search_terms=\( {encodeURIComponent(query)}&geo_location_terms= \){encodeURIComponent(loc)}`;
-          break;
-        case 'justdial':
-          targetUrl = `https://www.justdial.com/\( {encodeURIComponent(loc)}/ \){encodeURIComponent(query)}`;
-          break;
-        case 'tiktok':
-          targetUrl = `https://www.tiktok.com/search?q=${encodeURIComponent(query)}`;
-          break;
-        default:
-          targetUrl = `https://www.google.com/search?q=${encodeURIComponent(query + ' ' + loc)}`;
-      }
+      targetUrl = buildTargetUrl(platform, query, loc);
+      if (platform === 'google_maps') zenParams = '&js_render=true';
 
       console.log(`[FETCH] ${platform} → ${targetUrl}`);
 
-      const zenUrl = `https://api.zenrows.com/v1/?apikey=\( {ZENROWS_KEY}&url= \){encodeURIComponent(targetUrl)}${zenParams}`;
+      const zenUrl = `https://api.zenrows.com/v1/?apikey=${ZENROWS_KEY}&url=${encodeURIComponent(targetUrl)}${zenParams}`;
       const { data: html } = await axios.get(zenUrl, { timeout: 40000 });
       const $ = load(html);
 
